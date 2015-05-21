@@ -92,9 +92,43 @@ trainPre <- predict(preProc,train3a[,-ncol(train3a)])
 p <- qplot(PC1,PC2,col=train3a$classe,data=trainPre)
 p # interesting plot
 ```
+Try a simple model of rpart
+```{r}
+#modelRpart <- train(trainPre,train3a$classe,method="rpart")
+#saveRDS(modelRpart,"modelRpart.rds") #save the model
+preTestProc <- preProcess(test3a[,-ncol(test3a)],method=c("YeoJohnson","pca"),thresh=0.95)
+testPre <- predict(preProc,test3a[,-ncol(train3a)])
+predRpart <- predict(modelRpart,newdata=testPre)
+cV1 <- confusionMatrix(predRpart,test3a$classe)
+out <- paste0("The Rpart Model Accuracy is ",cV1[[3]][1])
+print(out)
+#plot(cV1[[2]],main="Confusion Matrix - Rpart")
+cV1[[2]] # in training error
+```
+We can create a random forest model now and check its accuracy
+```{r}
+modFrf <- train(trainPre,train3a$classe,method="rf")
+#saveRDS(modFrf,"modFrf.rds") #save the model
+#modFrf <- readRDS("modFrf.rds") # read saved model
+predFrf <- predict(modFrf,newdata=testPre)
+cVFrf <-confusionMatrix(predFrf,test3a$classe)
+out <- paste0("The Random Forest Model Accuracy is ",cVFrf[[3]][1])
+print(out)
+plot(cVFrf[[2]],main="Confusion Matrix - Random Forest")
+cVFrf[[2]] # in training error
+```
+
+Let's look at what the model thinks is important
+```{r}
+imp <- importance(modFrf$finalModel,type=1) # which features are important.
+impdf <- data.frame(modFrf$finalModel$importance) # turn it into a data frame so..
+impSub <- subset(impdf,MeanDecreaseGini>0) # only relevant vars
+impOrd <- data.frame(impSub[order(-impSub$MeanDecreaseGini),,drop=FALSE])
+head(impOrd,4) # gives us the 4 most important features.
+```
 We can create a logistic regression model now and check its accuracy
 ```{r}
-modFlr <- train(classe ~ .,method="logicBag",data=train3a,preProcess=c("YeoJohnson","pca"),trControl=trainControl(preProcOptions=list(thresh=0.95)))
+modFlr <- train(trainPre,train3a$classe,method="logicBag")
 #saveRDS(modFlr,"modFlr.rds") #save the model
 #modFlr <- readRDS("modFlr.rds") # read saved model
 predFlr <- predict(modFlr,newdata=test3a)
@@ -103,18 +137,6 @@ out <- paste0("The Logistic Regression Model Accuracy is ",cVFlr[[3]][1])
 print(out)
 plot(cVFlr[[2]],main="Confusion Matrix - Random Forest")
 cVFlr[[2]] # in training error
-```
-We can create a random forest model now and check its accuracy
-```{r}
-#modFrf <- train(classe ~ .,method="rf",data=train3a)
-#saveRDS(modFrf,"modFrf.rds") #save the model
-modFrf <- readRDS("modFrf.rds") # read saved model
-predFrf <- predict(modFrf,newdata=test3a)
-cVFrf <-confusionMatrix(predFrf,test3a$classe)
-out <- paste0("The Random Forest Model Accuracy is ",cVFrf[[3]][1])
-print(out)
-plot(cVFrf[[2]],main="Confusion Matrix - Random Forest")
-cVFrf[[2]] # in training error
 ```
 We can create a boosted (Ada) model now and check its accuracy
 ```{r}
@@ -128,26 +150,3 @@ print(out)
 plot(cVFAb[[2]],main="Confusion Matrix - Random Forest")
 cVFAb[[2]] # in training error
 ```
-Let's look at what the model thinks is important
-```{r}
-imp <- importance(modFrf,type=1) # which features are important.
-impdf <- data.frame(imp) # turn it into a data frame so..
-impSub <- subset(impdf,MeanDecreaseAccuracy>0) # only relevant vars
-impOrd <- data.frame(impSub[order(-impSub$MeanDecreaseAccuracy),,drop=FALSE])
-head(impOrd,4) # gives us the 4 most important features.
-```
-```{r}
-```modFit <- train(classe ~ .,method="rf",data=train3a,preProcess=c("YeoJohnson","pca"),trControl=trainControl(preProcOptions=list(thresh=0.95)))
-predRf <- predict(modFit,newdata=test3a[,-classe])
-cV1 <- confusionMatrix(predRf,test3a$classe)
-```
-Lets look at the data with only these two components
-```{r}
-modRf <- randomForest(classe ~ .,na.action=na.omit,ntree=100,data=training3,preProcess="pca",prox=TRUE,importance=TRUE)
-imp <- importance(modRf,type=1) # which features are important.
-impdf <- data.frame(imp) # turn it into a data frame so..
-impSub <- subset(impdf,MeanDecreaseAccuracy>0) # only relevant vars
-impOrd <- data.frame(impSub[order(-impSub$MeanDecreaseAccuracy),,drop=FALSE])
-head(impOrd,4) # gives us the 4 most important features.
-```
-Now that we know the 95 most important features, we can test various models 
