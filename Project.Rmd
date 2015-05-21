@@ -8,15 +8,14 @@ train <- read.csv("../pml-training.csv")
 test  <- read.csv("../pml-testing.csv")
 library(caret)
 ```
-Then setup some training and testing partitions with seed (7640) and an 80% partition.
+Then setup some training and testing partitions with seed (7640) and boosting to create partitions.
 ```{r}
 set.seed(7640)
-#inTrain <- createDataPartition(y=train$classe,p=0.8,list=FALSE)
 inTrain <- createResample(y=train$classe,times=1,list=FALSE)
 training <- train[inTrain,]
 testing <- train[-inTrain,]
 ```
-I would like to know which features are important.  The code below looks for features with near zero variance.
+I would like to know which features are important.  The code below looks for features with near zero variance and removes them.
 ```{r}
 nsv <- nearZeroVar(training,saveMetrics=TRUE)
 namedf <- subset(nsv,nzv==FALSE) # find all the relevant features' rows
@@ -28,7 +27,7 @@ print(out)
 testing2 <- testing[,nameList] # new df with just relevant features repeated on test set
 testing2$classe <- testing$classe # add outcome
 ```
-Next run a random forest on the training data and display the variables by importance.  I removed any feature with an importance less than zero and printed out the top 4 features.
+Next run a random forest on the training data and display the variables by importance.  Ignoring  features with an importance less than zero, print out the top 4 features.
 ```{r}
 library(randomForest)
 modRf <- randomForest(classe ~ .,na.action=na.omit,ntree=100,data=training2,prox=TRUE,importance=TRUE)
@@ -72,32 +71,29 @@ corrVar = which(M>0.9,arr.ind=T)
 out <- paste0("There are ", length(corrVar), " variables out of ", length(training3), " total with a correlation greater than 90%")
 print(out)
 ```
-It's also clear that with this large number of correlated variables that a Principal Component Analysis makes sense.  Using a preprocessing of YeoJohnson "is similar to the Box-Cox model but can accommodate predictors with zero and/or negative values."
-```{r}
-preProc <- preProcess(training3[,-ncol(training3)],method=c("YeoJohnson","pca"),thresh=0.95)
-predf <- data.frame(preProc$rotation) # a data frame of the principal components
-out <- paste0("There are ", length(predf), " principal components in the data")
-print(out)
-```
 Some of the columns contain NAs, we will remove them from the training and testing sets now.
 ```{r}
 naCols <- sapply(training3, function(x) {!any(is.na(x))}) # logical listing of those columnds w/o NAs
 train3a <- training3[,naCols] # new set w/o NAs
 test3a <- testing3[,naCols] # same for test set
 ```
-Taking a look at only 2 principal components to see what kind of accuracy that might create
+It's also clear that with this large number of correlated variables that a Principal Component Analysis makes sense.  Using a preprocessing of YeoJohnson "is similar to the Box-Cox model but can accommodate predictors with zero and/or negative values."  Then take a look at only 2 principal components to see what kind of accuracy that might create
 ```{r}
-preProc <- preProcess(train3a[,-ncol(train3a)],method=c("YeoJohnson","pca"),thresh=0.95,pcaComp=2)
+preProc <- preProcess(train3a[,-ncol(train3a)],method=c("YeoJohnson","pca"),thresh=0.95)
 trainPre <- predict(preProc,train3a[,-ncol(train3a)])
 p <- qplot(PC1,PC2,col=train3a$classe,data=trainPre)
 p # interesting plot
+```
+Also process the testing data the same way.
+```{r}
+#preTestProc <- preProcess(test3a[,-ncol(test3a)],method=c("YeoJohnson","pca"),thresh=0.95)
+testPre <- predict(preProc,test3a[,-ncol(train3a)])
 ```
 Try a simple model of rpart
 ```{r}
 #modelRpart <- train(trainPre,train3a$classe,method="rpart")
 #saveRDS(modelRpart,"modelRpart.rds") #save the model
-preTestProc <- preProcess(test3a[,-ncol(test3a)],method=c("YeoJohnson","pca"),thresh=0.95)
-testPre <- predict(preProc,test3a[,-ncol(train3a)])
+loadRDS(modelRpart,"modelRpart.rds") #load the saved  model
 predRpart <- predict(modelRpart,newdata=testPre)
 cV1 <- confusionMatrix(predRpart,test3a$classe)
 out <- paste0("The Rpart Model Accuracy is ",cV1[[3]][1])
@@ -140,12 +136,12 @@ cVFlr[[2]] # in training error
 ```
 We can create a boosted (Ada) model now and check its accuracy
 ```{r}
-modFAb <- train(classe ~ .,method="AdaBoost.M1",data=train3a)
-#saveRDS(modFrf,"modFrf.rds") #save the model
-modFAb <- readRDS("modFrf.rds") # read saved model
+modFAb <- train(trainPre,train3a$classe,method="AdaBoost.M1")
+saveRDS(modFAb,"modFAb.rds") #save the model
+#modFAb <- readRDS("modFAb.rds") # read saved model
 predFAb <- predict(modFAb,newdata=test3a)
 cVFAb <-confusionMatrix(predFAb,test3a$classe)
-out <- paste0("The Random Forest Model Accuracy is ",cVFAb[[3]][1])
+out <- paste0("The Boosted Ada Model Accuracy is ",cVFAb[[3]][1])
 print(out)
 plot(cVFAb[[2]],main="Confusion Matrix - Random Forest")
 cVFAb[[2]] # in training error
