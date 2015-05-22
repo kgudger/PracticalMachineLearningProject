@@ -5,29 +5,30 @@
 Read in the data sets first.
 ```{r}
 train <- read.csv("../pml-training.csv")
-test  <- read.csv("../pml-testing.csv")
 library(caret)
 ```  
-Then setup some training and testing partitions with seed (7640) and boosting to create partitions.
+Then setup some training and testing partitions with seed (7640) and bootstrapping to create partitions.
 ```{r}
 set.seed(7640)
 inTrain <- createResample(y=train$classe,times=1,list=FALSE)
 training <- train[inTrain,]
 testing <- train[-inTrain,]
 ```  
-I would like to know which features are important.  The code below looks for features with near zero variance and removes them.
+The "testing" set is a cross validation set. It is processed identically to the training set so that predictions with the final model will be the same.  The goal is for an accuracy of 95%.  Each model is evaluated with the cross validation set and results presented below.
+   
+It's good to know which features are important.  The code below looks for features with near zero variance and removes them.
 ```{r}
 nsv <- nearZeroVar(training,saveMetrics=TRUE)
 namedf <- subset(nsv,nzv==FALSE) # find all the relevant features' rows
 nameList <- row.names(namedf) # all the relevant names
 training2 <- training[,nameList] # new df with just relevant features
 training2$classe <- training$classe # add outcome
-out <- paste0("The total number of non-zero variance variables is ", length(nameList))
+out <- paste0("The total number of non-zero variance variables is ", length(nameList), " out of ",(length(names(training))-1), " original variables")
 print(out)
 testing2 <- testing[,nameList] # new df with just relevant features repeated on test set
 testing2$classe <- testing$classe # add outcome
 ```  
-Next run a random forest on the training data and display the variables by importance.  Ignoring  features with an importance less than zero, print out the top 4 features.
+Next run a simplified random forest on the training data and display the variables by importance.  Ignoring  features with an importance less than zero, print out the top 4 features.
 ```{r}
 library(randomForest)
 modRf <- randomForest(classe ~ .,na.action=na.omit,ntree=100,data=training2,prox=TRUE,importance=TRUE)
@@ -37,13 +38,13 @@ impSub <- subset(impdf,MeanDecreaseAccuracy>0) # only relevant vars
 impOrd <- data.frame(impSub[order(-impSub$MeanDecreaseAccuracy),,drop=FALSE])
 head(impOrd,4) # gives us the 4 most important features.
 ```  
-Let's look at the data with the 2 most important features.
+Looking at the data with the 2 most important features.
 ```{r}
 p <- qplot(X,cvtd_timestamp,col=classe,data=training2)
 p + geom_point(aes(x=X,y=cvtd_timestamp),size=5,shape=4,data=training2)
 ```  
    
-OK, it's obvious that X and cvtd_timestamp are confounding variables, so we'll have to remove them.  It appears that there are a number of timestamps in the data which we'll want to remove.  X and timestamps are in the first 5 columns, so remove columns 1-5.
+... it's obvious that X and cvtd_timestamp are confounding variables, so we'll have to remove them.  It appears that there are a number of timestamps in the data which we'll want to remove.  X and timestamps are in the first 5 columns, so remove columns 1-5.
 ```{r}
 training3 <- training2[,6:ncol(training2)] # remove X and timestamps
 testing3 <- testing2[,6:ncol(testing2)] # remove X and timestamps
@@ -71,10 +72,13 @@ naCols <- sapply(training3, function(x) {!any(is.na(x))}) # logical listing of t
 train3a <- training3[,naCols] # new set w/o NAs
 test3a <- testing3[,naCols] # same for test set
 ```  
-It's also clear that with this large number of correlated variables that a Principal Component Analysis makes sense.  Using a preprocessing of YeoJohnson "is similar to the Box-Cox model but can accommodate predictors with zero and/or negative values."  Then take a look at only 2 principal components to see what kind of accuracy that might create
+It's also clear that with this large number of correlated variables that a Principal Component Analysis can reduce the number of features.  Due to computer constraints, this is required.  Using a preprocessing of YeoJohnson "is similar to the Box-Cox model but can accommodate predictors with zero and/or negative values."  
 ```{r}
 preProc <- preProcess(train3a[,-ncol(train3a)],method=c("YeoJohnson","pca"),thresh=0.95)
 trainPre <- predict(preProc,train3a[,-ncol(train3a)])
+```
+Then take a look at only 2 principal components to see what kind of accuracy that might create
+```{r}
 p <- qplot(PC1,PC2,col=train3a$classe,data=trainPre)
 p # interesting plot
 ```  
@@ -83,7 +87,7 @@ Also process the testing data the same way.
 ```{r}
 testPre <- predict(preProc,test3a[,-ncol(train3a)])
 ```  
-Try a simple model of rpart
+The following is a comparison of 4 different prediction models to see which one is best.  First try a simple model of rpart
 ```{r}
 #modelRpart <- train(trainPre,train3a$classe,method="rpart")
 #saveRDS(modelRpart,"modelRpart.rds") #save the model
@@ -95,7 +99,7 @@ print(out)
 #plot(cV1[[2]],main="Confusion Matrix - Rpart")
 cV1[[2]] # in training error
 ```  
-We can create a random forest model now and check its accuracy
+Next create a random forest model now and check its accuracy...
 ```{r}
 #modFrf <- train(trainPre,train3a$classe,method="rf")
 #saveRDS(modFrf,"modFrf.rds") #save the model
@@ -107,7 +111,7 @@ print(out)
 plot(cVFrf[[2]],main="Confusion Matrix - Random Forest")
 cVFrf[[2]] # in training error
 ```  
-Let's look at what the model thinks is important
+Take a look at what this model thinks is important.
 ```{r}
 imp <- importance(modFrf$finalModel,type=1) # which features are important.
 impdf <- data.frame(modFrf$finalModel$importance) # turn it into a data frame so..
@@ -115,7 +119,7 @@ impSub <- subset(impdf,MeanDecreaseGini>0) # only relevant vars
 impOrd <- data.frame(impSub[order(-impSub$MeanDecreaseGini),,drop=FALSE])
 head(impOrd,4) # gives us the 4 most important features.
 ```  
-We can create a boosted (Ada) model now and check its accuracy
+Next create a boosted (Ada) model now and check its accuracy
 ```{r}
 #modFAb <- train(trainPre,train3a$classe,method="AdaBoost.M1")
 #saveRDS(modFAb,"modFAb.rds") #save the model
@@ -127,7 +131,7 @@ print(out)
 #plot(cVFAb[[2]],main="Confusion Matrix - Boosted Ada")
 cVFAb[[2]] # in training error
 ```  
-We can create a SVM model now and check its accuracy
+Finally create a SVM model and check its accuracy
 ```{r}
 #modFSvm <- train(trainPre,train3a$classe,method="svmLinear")
 #saveRDS(modFSvm,"modFSvm.rds") #save the model
@@ -139,7 +143,7 @@ print(out)
 #plot(cVFSvm[[2]],main="Confusion Matrix - SVM")
 cVFSvm[[2]] # in training error
 ```  
-Now make a table and graph it for the out of sample total errors for each model
+The following table and graph show the accuracy and the out of sample total errors for each model
 ```{r}
 resultnames <- c("rpart","SVM","boosted","random forest")
 results.df <- data.frame(row.names=resultnames);
@@ -163,4 +167,4 @@ barplot(results.df$Accuracy, main="Model Accuracy",xlab="Model",ylab="Accuracy",
 barplot(results.df$Out_Of_Sample, main="Model Accuracy",xlab="Model",ylab="Out Of Sample",names.arg=row.names(results.df))
 print.data.frame(results.df,digits=2)
 ```  
-In conclusion the Random Forest Model is clearly superior to the other 3.
+In conclusion the Random Forest Model is clearly superior to the other 3.  It has an accuracy of 98% and only 151 out of sample errors in a test set size of 7,296 measurements.

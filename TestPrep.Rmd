@@ -1,0 +1,29 @@
+---
+title: "TestPrep"
+author: "Keith Gudger"
+date: "05/22/2015"
+output: html_document
+---
+```{r}
+test  <- read.csv("../pml-testing.csv")
+library(caret)
+set.seed(7640)
+load("testsetup.RData")
+nameList <- nameList[-length(nameList)] # remove classe from list
+test2 <- test[,nameList] # new df with just relevant features repeated on test set
+test3 <- test2[,6:ncol(test2)] # remove X and timestamps
+naCols <- naCols[-length(naCols)] # remove classe from list
+test3a <- test3[,naCols] # same for test set
+load("../Results/preProc.RData")
+testPre <- predict(preProc,test3a)
+modFrf <- readRDS("../Results/modFrf.rds") # read saved model
+predFrf <- predict(modFrf,newdata=testPre)
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("../Results/problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+pml_write_files(predFrf)
+```
