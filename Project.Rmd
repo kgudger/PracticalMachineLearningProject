@@ -7,14 +7,14 @@ Read in the data sets first.
 train <- read.csv("../pml-training.csv")
 test  <- read.csv("../pml-testing.csv")
 library(caret)
-```
+```  
 Then setup some training and testing partitions with seed (7640) and boosting to create partitions.
 ```{r}
 set.seed(7640)
 inTrain <- createResample(y=train$classe,times=1,list=FALSE)
 training <- train[inTrain,]
 testing <- train[-inTrain,]
-```
+```  
 I would like to know which features are important.  The code below looks for features with near zero variance and removes them.
 ```{r}
 nsv <- nearZeroVar(training,saveMetrics=TRUE)
@@ -26,7 +26,7 @@ out <- paste0("The total number of non-zero variance variables is ", length(name
 print(out)
 testing2 <- testing[,nameList] # new df with just relevant features repeated on test set
 testing2$classe <- testing$classe # add outcome
-```
+```  
 Next run a random forest on the training data and display the variables by importance.  Ignoring  features with an importance less than zero, print out the top 4 features.
 ```{r}
 library(randomForest)
@@ -36,17 +36,18 @@ impdf <- data.frame(imp) # turn it into a data frame so..
 impSub <- subset(impdf,MeanDecreaseAccuracy>0) # only relevant vars
 impOrd <- data.frame(impSub[order(-impSub$MeanDecreaseAccuracy),,drop=FALSE])
 head(impOrd,4) # gives us the 4 most important features.
-```
+```  
 Let's look at the data with the 2 most important features.
 ```{r}
 p <- qplot(X,cvtd_timestamp,col=classe,data=training2)
 p + geom_point(aes(x=X,y=cvtd_timestamp),size=5,shape=4,data=training2)
-```
+```  
+   
 OK, it's obvious that X and cvtd_timestamp are confounding variables, so we'll have to remove them.  It appears that there are a number of timestamps in the data which we'll want to remove.  X and timestamps are in the first 5 columns, so remove columns 1-5.
 ```{r}
 training3 <- training2[,6:ncol(training2)] # remove X and timestamps
 testing3 <- testing2[,6:ncol(testing2)] # remove X and timestamps
-```
+```  
 Now run the randomForest again and see which variables are now important.
 ```{r}
 modRf <- randomForest(classe ~ .,na.action=na.omit,ntree=100,data=training3,prox=TRUE,importance=TRUE)
@@ -55,65 +56,57 @@ impdf <- data.frame(imp) # turn it into a data frame so..
 impSub <- subset(impdf,MeanDecreaseAccuracy>0) # only relevant vars
 impOrd <- data.frame(impSub[order(-impSub$MeanDecreaseAccuracy),,drop=FALSE])
 head(impOrd,4) # gives us the 4 most important features.
-```
-Let's look at the data with the 2 most important features.  Those are var_accel_dumbbell and min_roll_forearm.  Below is a plot of the resulting classes for those two features alone.
+```  
+Now look at how correlated the variables are to each other. 
 ```{r}
-p <- qplot(min_roll_forearm,var_accel_dumbbell,col=classe,data=training3)
-p + geom_point(aes(x=min_roll_forearm,y=var_accel_dumbbell),size=5,shape=4,data=training3)
-p <- qplot(min_roll_forearm,avg_roll_dumbbell,col=classe,data=training3)
-p + geom_point(aes(x=min_roll_forearm,y=avg_roll_dumbbell),size=5,shape=4,data=training3)
-```
-It's clear that these two features alone are not enough to predict the output class.  
-```{r}
-M <- abs(cor(training3[,-99])) # remove outcomes
-diag(M) <- 0
-corrVar = which(M>0.9,arr.ind=T)
+M <- abs(cor(training3[,-ncol(training3)])) # remove outcomes (last column)
+diag(M) <- 0 # remove diagonals
+corrVar = which(M>0.9,arr.ind=T) # correlation > 0.9
 out <- paste0("There are ", length(corrVar), " variables out of ", length(training3), " total with a correlation greater than 90%")
 print(out)
-```
+```  
 Some of the columns contain NAs, we will remove them from the training and testing sets now.
 ```{r}
 naCols <- sapply(training3, function(x) {!any(is.na(x))}) # logical listing of those columnds w/o NAs
 train3a <- training3[,naCols] # new set w/o NAs
 test3a <- testing3[,naCols] # same for test set
-```
+```  
 It's also clear that with this large number of correlated variables that a Principal Component Analysis makes sense.  Using a preprocessing of YeoJohnson "is similar to the Box-Cox model but can accommodate predictors with zero and/or negative values."  Then take a look at only 2 principal components to see what kind of accuracy that might create
 ```{r}
 preProc <- preProcess(train3a[,-ncol(train3a)],method=c("YeoJohnson","pca"),thresh=0.95)
 trainPre <- predict(preProc,train3a[,-ncol(train3a)])
 p <- qplot(PC1,PC2,col=train3a$classe,data=trainPre)
 p # interesting plot
-```
+```  
+   
 Also process the testing data the same way.
 ```{r}
-#preTestProc <- preProcess(test3a[,-ncol(test3a)],method=c("YeoJohnson","pca"),thresh=0.95)
 testPre <- predict(preProc,test3a[,-ncol(train3a)])
-```
+```  
 Try a simple model of rpart
 ```{r}
 #modelRpart <- train(trainPre,train3a$classe,method="rpart")
 #saveRDS(modelRpart,"modelRpart.rds") #save the model
-loadRDS(modelRpart,"modelRpart.rds") #load the saved  model
+modelRpart <- readRDS("../Results/modelRpart.rds") #load the saved  model
 predRpart <- predict(modelRpart,newdata=testPre)
 cV1 <- confusionMatrix(predRpart,test3a$classe)
 out <- paste0("The Rpart Model Accuracy is ",cV1[[3]][1])
 print(out)
 #plot(cV1[[2]],main="Confusion Matrix - Rpart")
 cV1[[2]] # in training error
-```
+```  
 We can create a random forest model now and check its accuracy
 ```{r}
-modFrf <- train(trainPre,train3a$classe,method="rf")
+#modFrf <- train(trainPre,train3a$classe,method="rf")
 #saveRDS(modFrf,"modFrf.rds") #save the model
-#modFrf <- readRDS("modFrf.rds") # read saved model
+modFrf <- readRDS("../Results/modFrf.rds") # read saved model
 predFrf <- predict(modFrf,newdata=testPre)
 cVFrf <-confusionMatrix(predFrf,test3a$classe)
 out <- paste0("The Random Forest Model Accuracy is ",cVFrf[[3]][1])
 print(out)
 plot(cVFrf[[2]],main="Confusion Matrix - Random Forest")
 cVFrf[[2]] # in training error
-```
-
+```  
 Let's look at what the model thinks is important
 ```{r}
 imp <- importance(modFrf$finalModel,type=1) # which features are important.
@@ -121,28 +114,53 @@ impdf <- data.frame(modFrf$finalModel$importance) # turn it into a data frame so
 impSub <- subset(impdf,MeanDecreaseGini>0) # only relevant vars
 impOrd <- data.frame(impSub[order(-impSub$MeanDecreaseGini),,drop=FALSE])
 head(impOrd,4) # gives us the 4 most important features.
-```
-We can create a logistic regression model now and check its accuracy
-```{r}
-modFlr <- train(trainPre,train3a$classe,method="logicBag")
-#saveRDS(modFlr,"modFlr.rds") #save the model
-#modFlr <- readRDS("modFlr.rds") # read saved model
-predFlr <- predict(modFlr,newdata=test3a)
-cVFlr <-confusionMatrix(predFlr,test3a$classe)
-out <- paste0("The Logistic Regression Model Accuracy is ",cVFlr[[3]][1])
-print(out)
-plot(cVFlr[[2]],main="Confusion Matrix - Random Forest")
-cVFlr[[2]] # in training error
-```
+```  
 We can create a boosted (Ada) model now and check its accuracy
 ```{r}
-modFAb <- train(trainPre,train3a$classe,method="AdaBoost.M1")
-saveRDS(modFAb,"modFAb.rds") #save the model
-#modFAb <- readRDS("modFAb.rds") # read saved model
-predFAb <- predict(modFAb,newdata=test3a)
+#modFAb <- train(trainPre,train3a$classe,method="AdaBoost.M1")
+#saveRDS(modFAb,"modFAb.rds") #save the model
+modFAb <- readRDS("../Results/modFAb.rds") # read saved model
+predFAb <- predict(modFAb,newdata=testPre)
 cVFAb <-confusionMatrix(predFAb,test3a$classe)
 out <- paste0("The Boosted Ada Model Accuracy is ",cVFAb[[3]][1])
 print(out)
-plot(cVFAb[[2]],main="Confusion Matrix - Random Forest")
+#plot(cVFAb[[2]],main="Confusion Matrix - Boosted Ada")
 cVFAb[[2]] # in training error
-```
+```  
+We can create a SVM model now and check its accuracy
+```{r}
+#modFSvm <- train(trainPre,train3a$classe,method="svmLinear")
+#saveRDS(modFSvm,"modFSvm.rds") #save the model
+modFSvm <- readRDS("../Results/modFSvm.rds") # read saved model
+predFSvm <- predict(modFSvm,newdata=testPre)
+cVFSvm <-confusionMatrix(predFSvm,test3a$classe)
+out <- paste0("The Support Vector Matrix Model Accuracy is ",cVFSvm[[3]][1])
+print(out)
+#plot(cVFSvm[[2]],main="Confusion Matrix - SVM")
+cVFSvm[[2]] # in training error
+```  
+Now make a table and graph it for the out of sample total errors for each model
+```{r}
+resultnames <- c("rpart","SVM","boosted","random forest")
+results.df <- data.frame(row.names=resultnames);
+accuracy <- c(cV1[[3]][1],cVFSvm[[3]][1],cVFAb[[3]][1],cVFrf[[3]][1])
+results.df$Accuracy <- accuracy
+oosRpart <- cV1[[2]]
+diag(oosRpart) <- 0
+oosRpart <- sum(oosRpart)
+oosB <- cVFAb[[2]]
+diag(oosB) <- 0
+oosB <- sum(oosB)
+oosSVM <- cVFSvm[[2]]
+diag(oosSVM) <- 0
+oosSVM <- sum(oosSVM)
+oosRf <- cVFrf[[2]]
+diag(oosRf) <- 0
+oosRf <- sum(oosRf)
+ooS <- c(oosRpart,oosSVM,oosB,oosRf)
+results.df$Out_Of_Sample <- ooS
+barplot(results.df$Accuracy, main="Model Accuracy",xlab="Model",ylab="Accuracy",names.arg=row.names(results.df))
+barplot(results.df$Out_Of_Sample, main="Model Accuracy",xlab="Model",ylab="Out Of Sample",names.arg=row.names(results.df))
+print.data.frame(results.df,digits=2)
+```  
+In conclusion the Random Forest Model is clearly superior to the other 3.
